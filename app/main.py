@@ -1,7 +1,9 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 
 from app.agent import Agent
 from app.schemas import ChatRequest, ChatResponse, Message
@@ -10,6 +12,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 agent: Agent | None = None
+UI_PATH = Path(__file__).parent / "static" / "index.html"
 
 
 @asynccontextmanager
@@ -27,6 +30,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="SHL Assessment Recommender", lifespan=lifespan)
 
 
+@app.get("/", response_class=HTMLResponse)
+def ui() -> str:
+    return UI_PATH.read_text(encoding="utf-8")
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -41,6 +49,8 @@ def chat(request: ChatRequest) -> ChatResponse:
             end_of_conversation=False,
         )
 
+    # Normalize and validate roles alternate user/assistant is not required by spec,
+    # but empty content is dropped.
     messages = [
         Message(role=m.role, content=m.content.strip())
         for m in request.messages

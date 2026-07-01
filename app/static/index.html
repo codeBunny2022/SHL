@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SHL Assessment Recommender</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f4f6f8;
+      color: #1a1a1a;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: #0b3d2e;
+      color: #fff;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    header span { font-size: 0.8rem; opacity: 0.75; }
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .msg {
+      max-width: 720px;
+      padding: 12px 16px;
+      border-radius: 12px;
+      line-height: 1.5;
+      font-size: 0.95rem;
+      white-space: pre-wrap;
+    }
+    .msg.user {
+      align-self: flex-end;
+      background: #0b3d2e;
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .msg.assistant {
+      align-self: flex-start;
+      background: #fff;
+      border: 1px solid #dde3ea;
+      border-bottom-left-radius: 4px;
+    }
+    .recs {
+      margin-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .rec {
+      background: #f0f7f4;
+      border: 1px solid #c8e6d4;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 0.85rem;
+    }
+    .rec a { color: #0b3d2e; font-weight: 600; text-decoration: none; }
+    .rec a:hover { text-decoration: underline; }
+    .rec .meta { color: #555; margin-top: 4px; font-size: 0.8rem; }
+    .badge {
+      display: inline-block;
+      background: #0b3d2e;
+      color: #fff;
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 0.75rem;
+      margin-left: 6px;
+    }
+    .end-tag {
+      margin-top: 8px;
+      font-size: 0.8rem;
+      color: #888;
+      font-style: italic;
+    }
+    footer {
+      background: #fff;
+      border-top: 1px solid #dde3ea;
+      padding: 14px 20px;
+      display: flex;
+      gap: 10px;
+    }
+    #input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid #ccd5df;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      resize: none;
+      height: 44px;
+      font-family: inherit;
+    }
+    #input:focus { outline: 2px solid #0b3d2e44; border-color: #0b3d2e; }
+    button {
+      padding: 0 20px;
+      background: #0b3d2e;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.secondary {
+      background: transparent;
+      color: #0b3d2e;
+      border: 1px solid #0b3d2e;
+    }
+    .toolbar { display: flex; gap: 8px; }
+    .typing { color: #888; font-size: 0.85rem; padding: 4px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SHL Assessment Recommender</h1>
+    <span id="status">ready</span>
+  </header>
+
+  <div id="chat">
+    <div class="msg assistant">Hi — describe the role you're hiring for and I'll suggest SHL assessments from the catalog.</div>
+  </div>
+
+  <footer>
+    <textarea id="input" placeholder="e.g. Hiring a mid-level Java developer…" rows="1"></textarea>
+    <div class="toolbar">
+      <button class="secondary" onclick="resetChat()">Reset</button>
+      <button id="sendBtn" onclick="send()">Send</button>
+    </div>
+  </footer>
+
+  <script>
+    const messages = [];
+
+    function renderRecs(recs) {
+      if (!recs || !recs.length) return '';
+      const items = recs.map(r => `
+        <div class="rec">
+          <a href="${r.url}" target="_blank" rel="noopener">${r.name}</a>
+          <span class="badge">${r.test_type}</span>
+          <div class="meta">${r.url}</div>
+        </div>`).join('');
+      return `<div class="recs">${items}</div>`;
+    }
+
+    function appendMsg(role, content, recs, ended) {
+      const div = document.createElement('div');
+      div.className = `msg ${role}`;
+      div.innerHTML = content + renderRecs(recs) + (ended ? '<div class="end-tag">Conversation complete</div>' : '');
+      document.getElementById('chat').appendChild(div);
+      div.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    async function send() {
+      const input = document.getElementById('input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const btn = document.getElementById('sendBtn');
+      btn.disabled = true;
+      input.value = '';
+      input.disabled = true;
+
+      messages.push({ role: 'user', content: text });
+      appendMsg('user', text);
+
+      const typing = document.createElement('div');
+      typing.className = 'typing';
+      typing.textContent = 'Thinking…';
+      document.getElementById('chat').appendChild(typing);
+
+      try {
+        const res = await fetch('/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages }),
+        });
+        const data = await res.json();
+        typing.remove();
+
+        messages.push({ role: 'assistant', content: data.reply });
+        appendMsg('assistant', data.reply, data.recommendations, data.end_of_conversation);
+      } catch (e) {
+        typing.remove();
+        appendMsg('assistant', 'Request failed. Is the server running?');
+      }
+
+      btn.disabled = false;
+      input.disabled = false;
+      input.focus();
+    }
+
+    function resetChat() {
+      messages.length = 0;
+      document.getElementById('chat').innerHTML =
+        '<div class="msg assistant">Hi — describe the role you\'re hiring for and I\'ll suggest SHL assessments from the catalog.</div>';
+    }
+
+    document.getElementById('input').addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    });
+
+    fetch('/health').then(r => r.json()).then(d => {
+      document.getElementById('status').textContent = d.status === 'ok' ? '● online' : 'offline';
+    }).catch(() => {
+      document.getElementById('status').textContent = 'offline';
+    });
+  </script>
+</body>
+</html>
